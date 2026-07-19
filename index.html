@@ -33,7 +33,7 @@
         }
 
         button {
-            background-color: #007bff;
+            background-color: #4CAF50;
             color: white;
             border: none;
             padding: 14px 32px;
@@ -42,13 +42,13 @@
             border-radius: 30px;
             cursor: pointer;
             transition: all 0.3s ease;
-            box-shadow: 0 4px 10px rgba(0, 123, 255, 0.3);
+            box-shadow: 0 4px 10px rgba(76, 175, 80, 0.3);
             margin-bottom: 25px;
             width: 100%;
         }
 
         button:hover {
-            background-color: #0056b3;
+            background-color: #45a049;
             transform: translateY(-2px);
         }
 
@@ -60,25 +60,22 @@
             box-shadow: none !important;
         }
 
-        #webcam-box {
+        #webcam-container {
             margin: 20px auto;
             border: 4px solid #e0e0e0;
             border-radius: 8px;
             overflow: hidden;
             width: 200px;
             height: 200px;
-            background-color: #333;
+            background-color: #eee;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.05);
             display: flex;
             justify-content: center;
             align-items: center;
-            color: #fff;
-            font-size: 14px;
         }
 
-        #webcam-box video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
+        #webcam-container canvas {
+            display: block;
         }
 
         #label-container {
@@ -100,6 +97,10 @@
             color: #444;
         }
 
+        .prediction-item:last-child {
+            border-bottom: none;
+        }
+
         .class-name {
             font-weight: 600;
         }
@@ -117,6 +118,7 @@
             color: #666;
             font-size: 14px;
             margin-top: 10px;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -124,56 +126,53 @@
 
 <div class="container">
     <h2>Teachable Machine Image Model</h2>
-    <button type="button" id="start-btn">เปิดใช้งานกล้อง (ทายผลทุก 3 วิ)</button>
+    <button type="button" id="start-btn" onclick="init()">เปิดใช้งานระบบ (วิเคราะห์ทุก 3 วินาที)</button>
     <div id="status-text" class="status-msg">กดปุ่มด้านบนเพื่อเริ่มต้น</div>
-    <div id="webcam-box">ปิดอยู่</div>
+    <div id="webcam-container">กล้องปิดอยู่</div>
     <div id="label-container"></div>
 </div>
 
-<!-- โหลดไลบรารีผ่านช่องทางสำรองที่เสถียรและรองรับการรันจากไฟล์เครื่อง -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/3.18.0/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@1.1.2/dist/teachablemachine-image.min.js"></script>
+<!-- กลับมาใช้ชุด Script ทางการของ Google ที่สามารถทำงานร่วมกับโครงสร้างเว็บแคมเดิมได้ร้อยเปอร์เซ็นต์ -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
 
 <script type="text/javascript">
-    // ลิงก์โมเดลของคุณ
-    const MODEL_URL = "https://teachablemachine.withgoogle.com/models/6zKJgPS1_/";
+    // ลิงก์โมเดลของคุณจากระบบ Teachable Machine
+    const URL = "https://teachablemachine.withgoogle.com/models/6zKJgPS1_/";
 
     let model, webcam, labelContainer, maxPredictions;
-    let isRunning = false;
+    let predictInterval;
 
-    // ผูกเหตุการณ์คลิกด้วยคำสั่งภายนอกเพื่อไม่ให้ติดบล็อก Inline
-    document.getElementById("start-btn").addEventListener("click", startProcess);
-
-    async function startProcess() {
-        if (isRunning) return;
-        
+    async function init() {
         const startBtn = document.getElementById("start-btn");
         const statusText = document.getElementById("status-text");
         
         startBtn.disabled = true;
-        startBtn.innerText = "กำลังทำงาน...";
-        statusText.innerText = "1. กำลังเชื่อมต่อกล้องเว็บแคม...";
+        startBtn.innerText = "กำลังเริ่มต้น...";
+        statusText.innerText = "1. กำลังโหลดโมเดล AI...";
 
         try {
-            // โครงสร้างมาตรฐานเบราว์เซอร์ในการเรียกใช้กล้องโดยตรง ไม่ผ่านโมดูลย่อย
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 200, height: 200 } });
-            
-            const webcamBox = document.getElementById("webcam-box");
-            webcamBox.innerHTML = ""; // ล้างข้อความเก่า
-            
-            const videoElement = document.createElement("video");
-            videoElement.srcObject = stream;
-            videoElement.autoplay = true;
-            videoElement.playsInline = true;
-            webcamBox.appendChild(videoElement);
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
 
-            statusText.innerText = "2. กำลังดาวน์โหลดโมเดล AI...";
-            
-            // โหลดโมเดล
-            model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+            // 1. โหลดโมเดลก่อน
+            model = await tmImage.load(modelURL, metadataURL);
             maxPredictions = model.getTotalClasses();
 
-            // เตรียมพื้นที่แสดงข้อความทายผล
+            statusText.innerText = "2. กำลังเปิดกล้องเว็บแคม...";
+
+            // 2. ตั้งค่าและเปิดใช้งานกล้อง
+            const flip = true; 
+            webcam = new tmImage.Webcam(200, 200, flip); 
+            await webcam.setup(); 
+            await webcam.play();
+            
+            // นำหน้าจอกล้องไปฝังบนเว็บแทนที่ตัวอักษรบอกสถานะเก่า
+            const webcamBox = document.getElementById("webcam-container");
+            webcamBox.innerHTML = "";
+            webcamBox.appendChild(webcam.canvas);
+
+            // 3. จัดเตรียมพื้นที่แสดงผลลัพธ์การทำนาย
             labelContainer = document.getElementById("label-container");
             labelContainer.innerHTML = "";
             for (let i = 0; i < maxPredictions; i++) {
@@ -183,31 +182,35 @@
                 labelContainer.appendChild(itemDiv);
             }
 
-            statusText.innerText = "ระบบกำลังวิเคราะห์ภาพทุก ๆ 3 วินาที";
-            isRunning = true;
+            statusText.innerText = "ระบบเริ่มวิเคราะห์ภาพทุก ๆ 3 วินาทีเรียบร้อย";
+            startBtn.innerText = "กำลังทำงาน (ทายผลทุก 3 วิ)";
 
-            // รันการทำนายผลทันที
-            predict(videoElement);
-
-            // ตั้งให้ทำงานทุก ๆ 3 วินาที (3000 มิลลิวินาที)
-            setInterval(() => {
-                predict(videoElement);
-            }, 3000);
+            // เริ่มทำการหน่วงเวลาเพื่อวิเคราะห์ภาพและรีเฟรชกล้องทุก 3 วินาที
+            predictInterval = setInterval(updateAndPredict, 3000);
+            
+            // รันทำนายผลทันทีในครั้งแรกสุด
+            updateAndPredict();
 
         } catch (error) {
             console.error(error);
-            alert("ไม่สามารถเปิดระบบได้ เนื่องจาก: " + error.message + "\n\nคำแนะนำ: กรุณาคลิกขวาที่ไฟล์นี้แล้วเลือกเปิดด้วย Google Chrome หรือ Microsoft Edge แล้วอย่าลืมกดอนุญาตให้ใช้กล้องนะครับ");
+            alert("ไม่สามารถเปิดระบบได้ เนื่องจาก: " + error.message);
             startBtn.disabled = false;
             startBtn.innerText = "ลองใหม่อีกครั้ง";
-            statusText.innerText = "เกิดข้อผิดพลาดในการเริ่มต้น";
+            statusText.innerText = "เกิดข้อผิดพลาดในการรันระบบ";
         }
     }
 
-    async function predict(videoEl) {
-        if (!model) return;
-        
-        // ใช้ตัววิดีโอหลักในการทายผลตรงๆ เพื่อตัดปัญหาความหน่วงของ Canvas
-        const prediction = await model.predict(videoEl);
+    // ฟังก์ชันรันกล้องและสั่งทำนายผลลัพธ์
+    async function updateAndPredict() {
+        if (webcam && model) {
+            webcam.update(); // ดึงภาพนิ่งเฟรมปัจจุบันจากหน้ากล้องเว็บแคม
+            await predict(); // ส่งไปให้ตัว AI ประมวลผลลัพธ์
+        }
+    }
+
+    // ฟังก์ชันการทำนายแยกประเภท
+    async function predict() {
+        const prediction = await model.predict(webcam.canvas);
         for (let i = 0; i < maxPredictions; i++) {
             const className = prediction[i].className;
             const probability = (prediction[i].probability * 100).toFixed(0) + "%";
